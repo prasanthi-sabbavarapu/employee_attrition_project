@@ -1,0 +1,383 @@
+# =====================================
+# Employee Attrition Dashboard (Streamlit)
+# =====================================
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import joblib
+import shap
+from sklearn.preprocessing import LabelEncoder
+import io
+
+# -------------------------------------
+# Page configuration
+# -------------------------------------
+st.set_page_config(
+    page_title="Employee Attrition Analysis",
+    layout="wide",
+    page_icon="👥"
+)
+
+# -------------------------------------
+# Custom CSS for better styling
+# -------------------------------------
+st.markdown(
+    """
+    <style>
+    
+    .main-header {
+        background: linear-gradient(135deg, #0056B3, #28A745);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .card {
+        background-color: #E3F2FD;
+        border: 1px solid #BBDEFB;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-card {
+        text-align: center;
+        padding: 10px;
+        border-radius: 8px;
+        margin: 5px;
+    }
+    .risk-high { background-color: #FFCDD2; color: #B71C1C; }
+    .risk-low { background-color: #C8E6C9; color: #1B5E20; }
+    .center-btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 20px;
+    }
+    .stButton>button {
+        background-color: #0056B3;
+        color: white;
+        border-radius: 5px;
+        border: none;
+        padding: 10px 20px;
+    }
+    .stButton>button:hover {
+        background-color: #003D82;
+    }
+    .sidebar .stRadio > div {
+        width: 100%;
+    }
+    .sidebar .stRadio label {
+        width: 100%;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 5px;
+        background-color: #E3F2FD;
+        border: 1px solid #BBDEFB;
+        transition: background-color 0.3s;
+    }
+    .sidebar .stRadio label:hover {
+        background-color: #BBDEFB;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# -------------------------------------
+# Session state for navigation
+# -------------------------------------
+if "page" not in st.session_state:
+    st.session_state.page = "welcome"
+
+# -------------------------------------
+# Sidebar Navigation
+# -------------------------------------
+with st.sidebar:
+    st.title("Navigation")
+    page_options = ["🏠 Home", "ℹ️ About Us", "📊 Dashboard", "🔍 Check Attrition", "🛡️ Prevent Attrition"]
+    selected_page = st.radio("Go to:", page_options, index=page_options.index("🏠 Home") if st.session_state.page == "welcome" else 
+                             page_options.index("ℹ️ About Us") if st.session_state.page == "about" else 
+                             page_options.index("📊 Dashboard") if st.session_state.page == "dashboard" else 
+                             page_options.index("🔍 Check Attrition") if st.session_state.page == "check_attrition" else 
+                             page_options.index("🛡️ Prevent Attrition"))
+    
+    if selected_page == "🏠 Home":
+        st.session_state.page = "welcome"
+    elif selected_page == "ℹ️ About Us":
+        st.session_state.page = "about"
+    elif selected_page == "📊 Dashboard":
+        st.session_state.page = "dashboard"
+    elif selected_page == "🔍 Check Attrition":
+        st.session_state.page = "check_attrition"
+    elif selected_page == "🛡️ Prevent Attrition":
+        st.session_state.page = "prevent_attrition"
+
+# Wrap the entire app in the uniform background
+st.markdown('<div class="app-bg">', unsafe_allow_html=True)
+
+# =====================================
+# WELCOME PAGE
+# =====================================
+if st.session_state.page == "welcome":
+    st.markdown(
+        """
+        <div class="main-header">
+            <h1>👋 Welcome to Employee Attrition Analysis</h1>
+            <p style="font-size:18px; margin:0;">
+                Empower HR teams to predict employee attrition, uncover insights with AI, and drive retention strategies.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("### 🚀 Key Features:")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("✅ Personalized attrition predictions")
+        st.write("✅ AI-driven explanations (SHAP)")
+    with col2:
+        st.write("✅ Actionable HR recommendations")
+        st.write("✅ Interactive, user-friendly dashboard")
+    
+    st.markdown('<div class="center-btn">', unsafe_allow_html=True)
+    if st.button("🚀 Get Started", key="start_btn"):
+        st.session_state.page = "dashboard"
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =====================================
+# ABOUT US PAGE
+# =====================================
+elif st.session_state.page == "about":
+    st.title("ℹ️ About Us")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.write("""
+    **Employee Attrition Analysis Dashboard** is an AI-powered tool designed for HR professionals to predict and prevent employee turnover.
+    
+    - **Built with**: Streamlit, Scikit-Learn, SHAP, and more.
+    - **Purpose**: Use machine learning to analyze employee data, provide explainable predictions, and offer tailored recommendations.
+    - **Team**: Developed by data science enthusiasts focused on HR innovation.
+    
+    For support, contact us at support@example.com.
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =====================================
+# DASHBOARD PAGE
+# =====================================
+elif st.session_state.page == "dashboard":
+    st.title("📊 Dashboard Overview")
+
+    # Load dataset
+    try:
+        df = pd.read_csv("WA_Fn-UseC_-HR-Employee-Attrition.csv")
+    except FileNotFoundError:
+        st.error("Dataset file not found.")
+        st.stop()
+
+    # Summary Statistics
+    st.subheader("📈 Key Statistics")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Employees", len(df))
+    with col2:
+        attrition_rate = (df['Attrition'].value_counts()['Yes'] / len(df)) * 100
+        st.metric("Attrition Rate", f"{attrition_rate:.1f}%")
+    with col3:
+        st.metric("Average Age", f"{df['Age'].mean():.1f}")
+    with col4:
+        st.metric("Average Monthly Income", f"${df['MonthlyIncome'].mean():,.0f}")
+
+    # Attrition Distribution Chart
+    st.subheader("📊 Attrition Distribution")
+    fig, ax = plt.subplots()
+    df['Attrition'].value_counts().plot.pie(autopct='%1.1f%%', colors=['#28A745', '#DC3545'], ax=ax)
+    ax.set_ylabel('')
+    st.pyplot(fig)
+
+    # Dataset Preview
+    st.subheader("📁 Dataset Preview")
+    with st.expander("View Dataset Sample"):
+        rows = st.slider("Rows to display", 5, len(df), 10)
+        st.dataframe(df.head(rows), use_container_width=True)
+
+# =====================================
+# CHECK ATTRITION PAGE
+# =====================================
+elif st.session_state.page == "check_attrition":
+    st.title("🔍 Check Employee Attrition Risk")
+
+    # Load model and dataset
+    try:
+        rf_model = joblib.load("random_forest_attrition_model.pkl")
+        df = pd.read_csv("WA_Fn-UseC_-HR-Employee-Attrition.csv")
+    except FileNotFoundError:
+        st.error("Model or dataset file not found.")
+        st.stop()
+
+    df_original = df.copy()
+
+    # Preprocessing
+    df['Attrition'] = df['Attrition'].map({'Yes': 1, 'No': 0})
+    df.drop(['EmployeeCount', 'Over18', 'StandardHours'], axis=1, inplace=True)
+    le = LabelEncoder()
+    for col in df.select_dtypes(include='object'):
+        df[col] = le.fit_transform(df[col])
+    X = df.drop('Attrition', axis=1)
+
+    explainer = shap.TreeExplainer(rf_model)
+
+    RECOMMENDATION_MAP = {
+        "OverTime": "Reduce overtime or redistribute workload to prevent burnout.",
+        "BusinessTravel": "Limit frequent travel or offer flexible/remote options.",
+        "JobSatisfaction": "Conduct career discussions and align roles with interests.",
+        "MonthlyIncome": "Review compensation and provide incentives or raises.",
+        "DistanceFromHome": "Consider hybrid work or relocation support.",
+        "YearsWithCurrManager": "Foster better manager-employee relationships.",
+        "TrainingTimesLastYear": "Offer more training and development programs.",
+        "StockOptionLevel": "Enhance long-term benefits like stock options.",
+        "WorkLifeBalance": "Promote policies for better work-life balance.",
+        "JobRole": "Assess role fit and explore internal mobility."
+    }
+
+    # User Input
+    emp_id = st.number_input(
+        "Enter Employee ID",
+        min_value=int(df_original['EmployeeNumber'].min()),
+        max_value=int(df_original['EmployeeNumber'].max()),
+        value=int(df_original['EmployeeNumber'].min())
+    )
+
+    if st.button("Check Attrition Risk", key="predict_btn"):
+        emp_data = X[X['EmployeeNumber'] == emp_id]
+        if emp_data.empty:
+            st.error("❌ Employee ID not found.")
+        else:
+            # Employee Details
+            st.subheader("👤 Employee Profile")
+            emp_details = df_original[df_original["EmployeeNumber"] == emp_id].iloc[0]
+            colA, colB = st.columns(2)
+            with colA:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.write("**Employee ID:**", emp_details["EmployeeNumber"])
+                st.write("**Age:**", emp_details["Age"])
+                st.write("**Gender:**", emp_details["Gender"])
+                st.write("**Department:**", emp_details["Department"])
+                st.write("**Job Role:**", emp_details["JobRole"])
+                st.markdown('</div>', unsafe_allow_html=True)
+            with colB:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.write("**Monthly Income:**", f"${emp_details['MonthlyIncome']:,}")
+                st.write("**Job Satisfaction:**", emp_details["JobSatisfaction"])
+                st.write("**Years at Company:**", emp_details["YearsAtCompany"])
+                st.write("**OverTime:**", emp_details["OverTime"])
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            # Prediction
+            probability = rf_model.predict_proba(emp_data)[0][1]
+            prediction = rf_model.predict(emp_data)[0]
+            st.subheader("🔍 Prediction Results")
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                risk_class = "risk-high" if prediction == 1 else "risk-low"
+                st.markdown(f'<div class="metric-card {risk_class}">', unsafe_allow_html=True)
+                st.metric("Attrition Probability", f"{probability*100:.1f}%")
+                if prediction == 1:
+                    st.error("⚠️ High Risk: Likely to Leave")
+                else:
+                    st.success("✅ Low Risk: Likely to Stay")
+                st.markdown('</div>', unsafe_allow_html=True)
+            with col2:
+                st.progress(probability, text="Risk Level")
+
+            # SHAP and Recommendations
+            shap_values = explainer.shap_values(emp_data)
+            shap_vals = shap_values[0] if isinstance(shap_values, list) else shap_values
+            shap_vals_1d = np.array(shap_vals).reshape(-1)
+            min_len = min(len(X.columns), len(shap_vals_1d))
+            shap_df = pd.DataFrame({
+                "Feature": X.columns[:min_len],
+                "SHAP_Value": shap_vals_1d[:min_len]
+            })
+            shap_df["Impact"] = shap_df["SHAP_Value"].abs()
+            shap_df = shap_df.sort_values(by="Impact", ascending=False).head(10)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("📌 Key Factors Influencing Attrition")
+                fig1, ax1 = plt.subplots(figsize=(7, 4))
+                shap_df_sorted = shap_df.sort_values("SHAP_Value")
+                colors = ["#DC3545" if v > 0 else "#28A745" for v in shap_df_sorted["SHAP_Value"]]
+                ax1.barh(shap_df_sorted["Feature"], shap_df_sorted["SHAP_Value"], color=colors)
+                ax1.axvline(0, color="black", linewidth=0.8)
+                ax1.set_xlabel("Impact on Attrition (SHAP Value)")
+                ax1.set_title("Positive (Red) = Increases Risk; Negative (Green) = Reduces Risk", fontsize=10)
+                st.pyplot(fig1)
+            with col2:
+                st.subheader("📊 Factor Contributions (%)")
+                shap_df["Contribution (%)"] = (shap_df["Impact"] / shap_df["Impact"].sum()) * 100
+                fig2, ax2 = plt.subplots(figsize=(7, 4))
+                ax2.barh(shap_df["Feature"], shap_df["Contribution (%)"], color="#0056B3")
+                ax2.set_xlabel("Contribution (%)")
+                ax2.set_title("Top Factors by Influence", fontsize=10)
+                st.pyplot(fig2)
+
+            st.subheader("🧠 AI Insights Summary")
+            positive_factors = shap_df[shap_df["SHAP_Value"] > 0]["Feature"].tolist()
+            negative_factors = shap_df[shap_df["SHAP_Value"] < 0]["Feature"].tolist()
+            if positive_factors:
+                st.write("🔴 **Risk-Increasing Factors:** " + ", ".join(positive_factors[:5]))
+            if negative_factors:
+                st.write("🟢 **Risk-Reducing Factors:** " + ", ".join(negative_factors[:5]))
+
+            st.subheader("🔧 Recommended Actions")
+            risk_factors = shap_df[shap_df["SHAP_Value"] > 0]
+            if risk_factors.empty:
+                st.success("✅ No major risks detected.")
+            else:
+                for _, row in risk_factors.head(3).iterrows():
+                    feature = row["Feature"]
+                    recommendation = RECOMMENDATION_MAP.get(feature, "Schedule a discussion.")
+                    st.markdown(f"👉 **{feature}**: {recommendation}")
+
+# =====================================
+# PREVENT ATTRITION PAGE
+# =====================================
+elif st.session_state.page == "prevent_attrition":
+    st.title("🛡️ Strategies to Prevent Attrition")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.write("""
+    Preventing employee attrition requires proactive HR strategies. Here are key tips:
+    
+    - **Improve Work-Life Balance**: Encourage flexible hours and remote work.
+    - **Enhance Compensation**: Offer competitive salaries and bonuses.
+    - **Boost Engagement**: Regular feedback, training, and career growth opportunities.
+    - **Foster Culture**: Build a positive environment with recognition programs.
+    - **Monitor Key Metrics**: Use tools like this dashboard to identify risks early.
+    
+    Download a summary guide for more details.
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Downloadable Summary
+    summary_text = """
+    Employee Attrition Prevention Guide:
+    1. Improve Work-Life Balance.
+    2. Enhance Compensation.
+    3. Boost Engagement.
+    4. Foster Culture.
+    5. Monitor Metrics.
+    """
+    st.download_button(
+        label="📥 Download Summary",
+        data=summary_text,
+        file_name="attrition_prevention_guide.txt",
+        mime="text/plain"
+    )
+
+st.markdown('</div>', unsafe_allow_html=True)  # Close the app-bg div
